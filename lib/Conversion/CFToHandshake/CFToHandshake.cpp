@@ -17,6 +17,7 @@
 #include "circt/Transforms/Passes.h"
 #include "mlir/Analysis/CFGLoopInfo.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/Affine/Analysis/AffineAnalysis.h"
 #include "mlir/Dialect/Affine/Analysis/AffineStructures.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -254,14 +255,14 @@ void handshake::removeBasicBlocks(Region &r) {
   }
 }
 
+static LogicalResult maximizeSSANoMem(Region &r, ConversionPatternRewriter &rewriter);
+
 LogicalResult
 HandshakeLowering::runSSAMaximization(ConversionPatternRewriter &rewriter,
                                       Value entryCtrl) {
   (void)entryCtrl;
   return maximizeSSANoMem(r, rewriter);
 }
-
-static LogicalResult maximizeSSANoMem(Region &r, ConversionPatternRewriter &rewriter);
 
 void removeBasicBlocks(handshake::FuncOp funcOp) {
   if (funcOp.isExternal())
@@ -1846,6 +1847,16 @@ struct CFToHandshakePass
   }
   void runOnOperation() override {
     ModuleOp m = getOperation();
+
+    // CF-to-Handshake expects control flow in the cf dialect. Some pipelines
+    // (e.g. after memref.copy expansion) still contain scf.for loops here.
+    // Normalize those first so the conversion does not fail on illegal SCF ops.
+    mlir::OpPassManager preLoweringPM("builtin.module");
+    preLoweringPM.addNestedPass<func::FuncOp>(mlir::createSCFToControlFlowPass());
+    if (failed(runPipeline(preLoweringPM, m))) {
+      signalPassFailure();
+      return;
+    }
 
     for (auto funcOp : llvm::make_early_inc_range(m.getOps<func::FuncOp>())) {
       if (failed(lowerFuncOp(funcOp, &getContext(), sourceConstants,
