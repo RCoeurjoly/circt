@@ -24,6 +24,8 @@
 #include "circt/Support/BackedgeBuilder.h"
 #include "circt/Support/ValueMapper.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
 #include "mlir/Pass/Pass.h"
@@ -160,6 +162,8 @@ static std::string getTypeName(Location loc, Type type) {
       typeName += "_si" + std::to_string(type.getIntOrFloatBitWidth());
     else
       typeName += "_ui" + std::to_string(type.getIntOrFloatBitWidth());
+  } else if (auto floatType = dyn_cast<FloatType>(type)) {
+    typeName += "_f" + std::to_string(floatType.getWidth());
   } else if (auto tupleType = dyn_cast<TupleType>(type)) {
     typeName += "_tuple";
     for (auto elementType : tupleType.getTypes())
@@ -192,6 +196,8 @@ static std::string getSubModuleName(Operation *oldOp) {
         subModuleName += "_c" + std::to_string(intAttr.getUInt());
       else
         subModuleName += "_c" + std::to_string((uint64_t)intAttr.getInt());
+    } else if (auto floatAttr = dyn_cast<FloatAttr>(constOp.getValue())) {
+      subModuleName += "_cf" + std::to_string(floatAttr.getValueAsDouble());
     } else
       oldOp->emitError("unsupported constant type");
   }
@@ -458,6 +464,8 @@ struct UnwrappedIO {
   }
 };
 
+static Value createZeroDataConst(struct RTLBuilder &s, Location loc, Type type);
+
 // A class containing a bunch of syntactic sugar to reduce builder function
 // verbosity.
 // @todo: should be moved to support.
@@ -654,8 +662,11 @@ struct RTLBuilder {
   // from the lowest index of value.
   Value mux(Value index, ValueRange values,
             std::optional<StringRef> name = {}) {
-    if (values.size() == 2)
-      return comb::MuxOp::create(b, loc, index, values[1], values[0]);
+    if (values.size() == 2) {
+      if (isa<IntType, IntegerType, NoneType>(values[0].getType()))
+        return comb::MuxOp::create(b, loc, index, values[1], values[0]);
+      return arrayGet(arrayCreate(values), index, name);
+    }
 
     return arrayGet(arrayCreate(values), index, name);
   }
@@ -668,12 +679,9 @@ struct RTLBuilder {
     assert(numInputs == index.getType().getIntOrFloatBitWidth() &&
            "one-hot select can't mux inputs");
 
-    // Start the mux tree with zero value.
-    // Todo: clean up when handshake supports i0.
+    // Start the mux tree with a typed zero value.
     auto dataType = inputs[0].getType();
-    unsigned width =
-        isa<NoneType>(dataType) ? 0 : dataType.getIntOrFloatBitWidth();
-    Value muxValue = constant(width, 0);
+    Value muxValue = createZeroDataConst(*this, loc, dataType);
 
     // Iteratively chain together muxes from the high bit to the low bit.
     for (size_t i = numInputs - 1; i != 0; --i) {
@@ -699,6 +707,10 @@ static Value createZeroDataConst(RTLBuilder &s, Location loc, Type type) {
       .Case<NoneType>([&](NoneType) { return s.constant(0, 0); })
       .Case<IntType, IntegerType>([&](auto type) {
         return s.constant(type.getIntOrFloatBitWidth(), 0);
+      })
+      .Case<FloatType>([&](auto floatType) {
+        auto zero = FloatAttr::get(floatType, 0.0);
+        return arith::ConstantOp::create(s.b, loc, floatType, zero);
       })
       .Case<hw::StructType>([&](auto structType) {
         SmallVector<Value> zeroValues;
@@ -1111,6 +1123,17 @@ public:
   }
 };
 
+class AssertConversionPattern : public OpConversionPattern<cf::AssertOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(cf::AssertOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // Converts an arbitrary operation into a unit rate actor. A unit rate actor
 // will transact once all inputs are valid and its output is ready.
 template <typename TIn, typename TOut = TIn>
@@ -1248,6 +1271,34 @@ public:
       return buildCompareLogic(comb::ICmpPredicate::uge);
     }
     assert(false && "invalid CmpIOp");
+  };
+};
+
+class FloatComparisonConversionPattern
+    : public HandshakeConversionPattern<arith::CmpFOp> {
+public:
+  using HandshakeConversionPattern<arith::CmpFOp>::HandshakeConversionPattern;
+  void buildModule(arith::CmpFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return arith::CmpFOp::create(s.b, op.getLoc(), op.getPredicate(),
+                                   inputs[0], inputs[1]);
+    });
+  };
+};
+
+template <typename CastOp>
+class CastConversionPattern : public HandshakeConversionPattern<CastOp> {
+public:
+  using HandshakeConversionPattern<CastOp>::HandshakeConversionPattern;
+  void buildModule(CastOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return CastOp::create(s.b, op.getLoc(), op.getResult().getType(),
+                            inputs[0]);
+    });
   };
 };
 
@@ -1635,8 +1686,18 @@ public:
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
     unwrappedIO.outputs[0].valid->setValue(unwrappedIO.inputs[0].valid);
     unwrappedIO.inputs[0].ready->setValue(unwrappedIO.outputs[0].ready);
-    auto constantValue = op->getAttrOfType<IntegerAttr>("value").getValue();
-    unwrappedIO.outputs[0].data->setValue(s.constant(constantValue));
+    Attribute attr = op.getValue();
+    if (auto intAttr = dyn_cast<IntegerAttr>(attr)) {
+      unwrappedIO.outputs[0].data->setValue(s.constant(intAttr.getValue()));
+      return;
+    }
+    if (auto floatAttr = dyn_cast<FloatAttr>(attr)) {
+      unwrappedIO.outputs[0].data->setValue(
+          arith::ConstantOp::create(s.b, op.getLoc(), floatAttr.getType(),
+                                    floatAttr));
+      return;
+    }
+    op->emitError("unsupported constant type");
   };
 };
 
@@ -1915,8 +1976,8 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
   auto ls = HandshakeLoweringState{op->getParentOfType<mlir::ModuleOp>(),
                                    instanceUniquer};
   RewritePatternSet patterns(op.getContext());
-  patterns.insert<FuncOpConversionPattern, ReturnConversionPattern>(
-      op.getContext());
+  patterns.insert<FuncOpConversionPattern, ReturnConversionPattern,
+                  AssertConversionPattern>(op.getContext());
   patterns.insert<JoinConversionPattern, ForkConversionPattern,
                   SyncConversionPattern>(typeConverter, op.getContext(),
                                          moduleBuilder, ls);
@@ -1936,18 +1997,31 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       UnitRateConversionPattern<arith::ShLIOp, comb::ShlOp>,
       UnitRateConversionPattern<arith::ShRUIOp, comb::ShrUOp>,
       UnitRateConversionPattern<arith::ShRSIOp, comb::ShrSOp>,
+      UnitRateConversionPattern<arith::AddFOp>,
+      UnitRateConversionPattern<arith::SubFOp>,
+      UnitRateConversionPattern<arith::MulFOp>,
+      UnitRateConversionPattern<arith::DivFOp>,
+      UnitRateConversionPattern<arith::MaximumFOp>,
+      UnitRateConversionPattern<math::ExpOp>,
+      UnitRateConversionPattern<math::RsqrtOp>,
+      UnitRateConversionPattern<math::TanhOp>,
+      UnitRateConversionPattern<math::FPowIOp>,
       UnitRateConversionPattern<arith::SelectOp, comb::MuxOp>,
       // HW operations.
       StructCreateConversionPattern,
       // Handshake operations.
       ConditionalBranchConversionPattern, MuxConversionPattern,
       PackConversionPattern, UnpackConversionPattern,
-      ComparisonConversionPattern, BufferConversionPattern,
+      ComparisonConversionPattern, FloatComparisonConversionPattern,
+      BufferConversionPattern,
       SourceConversionPattern, SinkConversionPattern, ConstantConversionPattern,
       MergeConversionPattern, ControlMergeConversionPattern,
       LoadConversionPattern, StoreConversionPattern, MemoryConversionPattern,
       InstanceConversionPattern,
       // Arith operations.
+      CastConversionPattern<arith::UIToFPOp>,
+      CastConversionPattern<arith::SIToFPOp>,
+      CastConversionPattern<arith::TruncFOp>,
       ExtendConversionPattern<arith::ExtUIOp, /*signExtend=*/false>,
       ExtendConversionPattern<arith::ExtSIOp, /*signExtend=*/true>,
       TruncateConversionPattern, IndexCastConversionPattern>(
@@ -1994,6 +2068,7 @@ public:
                       hw::InstanceOp>();
     target
         .addIllegalDialect<handshake::HandshakeDialect, arith::ArithDialect>();
+    target.addIllegalOp<cf::AssertOp>();
 
     // Convert the handshake.func operations in post-order wrt. the instance
     // graph. This ensures that any referenced submodules (through
@@ -2024,7 +2099,12 @@ public:
     RewritePatternSet patterns(mod.getContext());
     patterns.insert<ESIInstanceConversionPattern>(mod.getContext(),
                                                   symbolCache);
-    if (failed(applyPartialConversion(mod, target, std::move(patterns)))) {
+    ConversionTarget secondStageTarget(getContext());
+    secondStageTarget.markUnknownOpDynamicallyLegal(
+        [](Operation *) { return true; });
+    secondStageTarget.addIllegalOp<ESIInstanceOp>();
+    if (failed(
+            applyPartialConversion(mod, secondStageTarget, std::move(patterns)))) {
       mod->emitOpError() << "error during conversion";
       signalPassFailure();
     }
