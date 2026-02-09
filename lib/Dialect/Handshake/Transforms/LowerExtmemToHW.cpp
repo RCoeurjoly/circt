@@ -74,20 +74,29 @@ static Type indexToMemAddr(Type t, MemRefType memRef) {
   return IntegerType::get(t.getContext(), addrWidth);
 }
 
-static HandshakeMemType getMemTypeForExtmem(Value v) {
+static FailureOr<handshake::ExternalMemoryOp> findExtmemUser(Value v) {
+  for (Operation *user : v.getUsers())
+    if (auto extmem = dyn_cast<handshake::ExternalMemoryOp>(user))
+      return extmem;
+  return failure();
+}
+
+static FailureOr<HandshakeMemType> getMemTypeForExtmem(Value v) {
   auto *ctx = v.getContext();
   assert(isa<mlir::MemRefType>(v.getType()) && "Value is not a memref type");
-  auto extmemOp = cast<handshake::ExternalMemoryOp>(*v.getUsers().begin());
+  auto extmemOp = findExtmemUser(v);
+  if (failed(extmemOp))
+    return failure();
   HandshakeMemType memType;
   llvm::SmallVector<hw::detail::FieldInfo> inFields, outFields;
 
   // Add memory type.
   memType.memRefType = cast<MemRefType>(v.getType());
-  memType.loadPorts = extmemOp.getLdCount();
-  memType.storePorts = extmemOp.getStCount();
+  memType.loadPorts = (*extmemOp).getLdCount();
+  memType.storePorts = (*extmemOp).getStCount();
 
   // Add load ports.
-  for (auto [i, ldif] : llvm::enumerate(extmemOp.getLoadPorts())) {
+  for (auto [i, ldif] : llvm::enumerate((*extmemOp).getLoadPorts())) {
     auto names = LoadName::get(ctx, i);
     memType.inputTypes.push_back({names.dataIn, ldif.dataOut.getType()});
     memType.outputTypes.push_back(
@@ -96,7 +105,7 @@ static HandshakeMemType getMemTypeForExtmem(Value v) {
   }
 
   // Add store ports.
-  for (auto [i, stif] : llvm::enumerate(extmemOp.getStorePorts())) {
+  for (auto [i, stif] : llvm::enumerate((*extmemOp).getStorePorts())) {
     auto names = StoreNames::get(ctx, i);
 
     // Incoming store data and address
@@ -382,12 +391,11 @@ struct ArgTypeReplacement {
 
 LogicalResult
 HandshakeLowerExtmemToHWPass::lowerExtmemToHW(handshake::FuncOp func) {
-  // Gather memref ports to be converted. This is an ordered map, and will be
-  // iterated from lo to hi indices.
-  std::map<unsigned, Value> memrefArgs;
+  // Gather memref argument indices to be converted.
+  llvm::SmallVector<unsigned> memrefArgs;
   for (auto [i, arg] : llvm::enumerate(func.getArguments()))
     if (isa<MemRefType>(arg.getType()))
-      memrefArgs[i] = arg;
+      memrefArgs.push_back(i);
 
   if (memrefArgs.empty())
     return success(); // nothing to do.
@@ -401,17 +409,21 @@ HandshakeLowerExtmemToHWPass::lowerExtmemToHW(handshake::FuncOp func) {
       func, func.getArgumentTypes(), func.getResultTypes());
 
   OpBuilder b(func);
-  for (auto it : memrefArgs) {
-    // Do not use structured bindings for 'it' - cannot reference inside lambda.
-    unsigned i = it.first;
-    auto arg = it.second;
+  // Process from high to low indices so argument mutation does not invalidate
+  // yet-to-be-processed indices.
+  for (unsigned i : llvm::reverse(memrefArgs)) {
+    auto arg = func.getArgument(i);
     auto loc = arg.getLoc();
     // Get the attached extmemory external module.
-    auto extmemOp = cast<handshake::ExternalMemoryOp>(*arg.getUsers().begin());
-    b.setInsertionPoint(extmemOp);
+    auto extmemOp = findExtmemUser(arg);
+    if (failed(extmemOp))
+      return func.emitError("missing handshake.extmemory user for memref argument");
+    b.setInsertionPoint(*extmemOp);
 
     // Add memory input - this is the output of the extmemory op.
     auto memIOTypes = getMemTypeForExtmem(arg);
+    if (failed(memIOTypes))
+      return func.emitError("failed to derive memory port types for memref argument");
     MemRefType memrefType = cast<MemRefType>(arg.getType());
 
     auto oldReturnOp =
@@ -442,9 +454,9 @@ HandshakeLowerExtmemToHWPass::lowerExtmemToHW(handshake::FuncOp func) {
 
     // Plumb load ports.
     unsigned portIdx = 0;
-    for (auto loadPort : extmemOp.getLoadPorts()) {
-      auto newInPort = addArgRes(loadPort.index, memIOTypes.inputTypes[portIdx],
-                                 memIOTypes.outputTypes[portIdx]);
+    for (auto loadPort : (*extmemOp).getLoadPorts()) {
+      auto newInPort = addArgRes(loadPort.index, (*memIOTypes).inputTypes[portIdx],
+                                 (*memIOTypes).outputTypes[portIdx]);
       if (failed(newInPort))
         return failure();
       newReturnOperands.push_back(
@@ -453,15 +465,15 @@ HandshakeLowerExtmemToHWPass::lowerExtmemToHW(handshake::FuncOp func) {
     }
 
     // Plumb store ports.
-    for (auto storePort : extmemOp.getStorePorts()) {
+    for (auto storePort : (*extmemOp).getStorePorts()) {
       auto newInPort =
-          addArgRes(storePort.index, memIOTypes.inputTypes[portIdx],
-                    memIOTypes.outputTypes[portIdx]);
+          addArgRes(storePort.index, (*memIOTypes).inputTypes[portIdx],
+                    (*memIOTypes).outputTypes[portIdx]);
       if (failed(newInPort))
         return failure();
       newReturnOperands.push_back(
           plumbStorePort(loc, b, storePort, *newInPort,
-                         memIOTypes.outputTypes[portIdx].second, memrefType));
+                         (*memIOTypes).outputTypes[portIdx].second, memrefType));
       ++portIdx;
     }
 
@@ -473,7 +485,7 @@ HandshakeLowerExtmemToHWPass::lowerExtmemToHW(handshake::FuncOp func) {
 
     // Erase the extmemory operation since I/O plumbing has replaced all of its
     // results.
-    extmemOp.erase();
+    (*extmemOp).erase();
 
     // Erase the original memref argument of the top-level i/o now that it's
     // use has been removed.
@@ -481,7 +493,7 @@ HandshakeLowerExtmemToHWPass::lowerExtmemToHW(handshake::FuncOp func) {
       return failure();
     eraseFromArrayAttr(func, "argNames", i + addedInPorts);
 
-    argReplacements[i] = memIOTypes;
+    argReplacements[i] = *memIOTypes;
   }
 
   if (createESIWrapper)
