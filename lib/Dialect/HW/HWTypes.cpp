@@ -79,7 +79,7 @@ bool circt::hw::isHWEnumType(mlir::Type type) {
 /// hardware but not marker types like InOutType.
 bool circt::hw::isHWValueType(Type type) {
   // Signless and signed integer types are both valid.
-  if (isa<IntegerType, IntType, EnumType>(type))
+  if (isa<IntegerType, IntType, EnumType, mlir::FloatType>(type))
     return true;
 
   if (auto array = dyn_cast<ArrayType>(type))

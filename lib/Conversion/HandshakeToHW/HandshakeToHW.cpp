@@ -21,6 +21,7 @@
 #include "circt/Dialect/Handshake/HandshakeUtils.h"
 #include "circt/Dialect/Handshake/Visitor.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Dialect/SV/SVOps.h"
 #include "circt/Support/BackedgeBuilder.h"
 #include "circt/Support/ValueMapper.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -465,6 +466,8 @@ struct UnwrappedIO {
 };
 
 static Value createZeroDataConst(struct RTLBuilder &s, Location loc, Type type);
+static Value createFloatLiteral(struct RTLBuilder &s, Location loc,
+                                FloatAttr value);
 
 // A class containing a bunch of syntactic sugar to reduce builder function
 // verbosity.
@@ -709,8 +712,7 @@ static Value createZeroDataConst(RTLBuilder &s, Location loc, Type type) {
         return s.constant(type.getIntOrFloatBitWidth(), 0);
       })
       .Case<FloatType>([&](auto floatType) {
-        auto zero = FloatAttr::get(floatType, 0.0);
-        return arith::ConstantOp::create(s.b, loc, floatType, zero);
+        return createFloatLiteral(s, loc, FloatAttr::get(floatType, 0.0));
       })
       .Case<hw::StructType>([&](auto structType) {
         SmallVector<Value> zeroValues;
@@ -723,6 +725,28 @@ static Value createZeroDataConst(RTLBuilder &s, Location loc, Type type) {
         assert(false);
         return {};
       });
+}
+
+static Value createFloatLiteral(RTLBuilder &s, Location loc, FloatAttr value) {
+  auto floatType = cast<FloatType>(value.getType());
+  APInt bits = value.getValue().bitcastToAPInt();
+  llvm::SmallString<32> hexBuf;
+  bits.toString(hexBuf, /*Radix=*/16, /*Signed=*/false,
+                /*formatAsCLiteral=*/false);
+  std::string hex = std::string(hexBuf);
+  if (hex.size() < bits.getBitWidth() / 4)
+    hex = std::string(bits.getBitWidth() / 4 - hex.size(), '0') + hex;
+
+  std::string format;
+  if (floatType.isF32())
+    format = "$bitstoshortreal(32'h" + hex + ")";
+  else if (floatType.isF64())
+    format = "$bitstoreal(64'h" + hex + ")";
+  else
+    llvm_unreachable("unsupported float type");
+
+  return sv::VerbatimExprOp::create(s.b, loc, value.getType(), format,
+                                    ValueRange{});
 }
 
 static void
@@ -1282,22 +1306,213 @@ public:
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return arith::CmpFOp::create(s.b, op.getLoc(), op.getPredicate(),
-                                   inputs[0], inputs[1]);
+      StringRef expr = "";
+      switch (op.getPredicate()) {
+      case arith::CmpFPredicate::OEQ:
+      case arith::CmpFPredicate::UEQ:
+        expr = "({{0}} == {{1}})";
+        break;
+      case arith::CmpFPredicate::ONE:
+      case arith::CmpFPredicate::UNE:
+        expr = "({{0}} != {{1}})";
+        break;
+      case arith::CmpFPredicate::OLT:
+      case arith::CmpFPredicate::ULT:
+        expr = "({{0}} < {{1}})";
+        break;
+      case arith::CmpFPredicate::OLE:
+      case arith::CmpFPredicate::ULE:
+        expr = "({{0}} <= {{1}})";
+        break;
+      case arith::CmpFPredicate::OGT:
+      case arith::CmpFPredicate::UGT:
+        expr = "({{0}} > {{1}})";
+        break;
+      case arith::CmpFPredicate::OGE:
+      case arith::CmpFPredicate::UGE:
+        expr = "({{0}} >= {{1}})";
+        break;
+      default:
+        llvm_unreachable("unsupported CmpFOp predicate");
+      }
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
+                                        inputs);
     });
   };
 };
 
-template <typename CastOp>
-class CastConversionPattern : public HandshakeConversionPattern<CastOp> {
+class UIToFPConversionPattern
+    : public HandshakeConversionPattern<arith::UIToFPOp> {
 public:
-  using HandshakeConversionPattern<CastOp>::HandshakeConversionPattern;
-  void buildModule(CastOp op, BackedgeBuilder &bb, RTLBuilder &s,
+  using HandshakeConversionPattern<arith::UIToFPOp>::HandshakeConversionPattern;
+  void buildModule(arith::UIToFPOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return CastOp::create(s.b, op.getLoc(), op.getResult().getType(),
-                            inputs[0]);
+      auto resultType = cast<FloatType>(op.getType());
+      StringRef castType = resultType.isF32() ? "shortreal" : "real";
+      std::string expr = "(" + castType.str() + "'({{0}}))";
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
+                                        inputs);
+    });
+  };
+};
+
+class SIToFPConversionPattern
+    : public HandshakeConversionPattern<arith::SIToFPOp> {
+public:
+  using HandshakeConversionPattern<arith::SIToFPOp>::HandshakeConversionPattern;
+  void buildModule(arith::SIToFPOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      auto resultType = cast<FloatType>(op.getType());
+      StringRef castType = resultType.isF32() ? "shortreal" : "real";
+      std::string expr = "(" + castType.str() + "'({{0}}))";
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
+                                        inputs);
+    });
+  };
+};
+
+class TruncFOpConversionPattern
+    : public HandshakeConversionPattern<arith::TruncFOp> {
+public:
+  using HandshakeConversionPattern<arith::TruncFOp>::HandshakeConversionPattern;
+  void buildModule(arith::TruncFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
+                                        "(shortreal'({{0}}))", inputs);
+    });
+  };
+};
+
+class AddFOpConversionPattern
+    : public HandshakeConversionPattern<arith::AddFOp> {
+public:
+  using HandshakeConversionPattern<arith::AddFOp>::HandshakeConversionPattern;
+  void buildModule(arith::AddFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
+                                        "({{0}} + {{1}})", inputs);
+    });
+  };
+};
+
+class SubFOpConversionPattern
+    : public HandshakeConversionPattern<arith::SubFOp> {
+public:
+  using HandshakeConversionPattern<arith::SubFOp>::HandshakeConversionPattern;
+  void buildModule(arith::SubFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
+                                        "({{0}} - {{1}})", inputs);
+    });
+  };
+};
+
+class MulFOpConversionPattern
+    : public HandshakeConversionPattern<arith::MulFOp> {
+public:
+  using HandshakeConversionPattern<arith::MulFOp>::HandshakeConversionPattern;
+  void buildModule(arith::MulFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
+                                        "({{0}} * {{1}})", inputs);
+    });
+  };
+};
+
+class DivFOpConversionPattern
+    : public HandshakeConversionPattern<arith::DivFOp> {
+public:
+  using HandshakeConversionPattern<arith::DivFOp>::HandshakeConversionPattern;
+  void buildModule(arith::DivFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
+                                        "({{0}} / {{1}})", inputs);
+    });
+  };
+};
+
+class MaximumFOpConversionPattern
+    : public HandshakeConversionPattern<arith::MaximumFOp> {
+public:
+  using HandshakeConversionPattern<
+      arith::MaximumFOp>::HandshakeConversionPattern;
+  void buildModule(arith::MaximumFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return sv::VerbatimExprOp::create(
+          s.b, op.getLoc(), op.getType(), "(({{0}} > {{1}}) ? {{0}} : {{1}})",
+          inputs);
+    });
+  };
+};
+
+class ExpOpConversionPattern : public HandshakeConversionPattern<math::ExpOp> {
+public:
+  using HandshakeConversionPattern<math::ExpOp>::HandshakeConversionPattern;
+  void buildModule(math::ExpOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
+                                        "($exp({{0}}))", inputs);
+    });
+  };
+};
+
+class RsqrtOpConversionPattern
+    : public HandshakeConversionPattern<math::RsqrtOp> {
+public:
+  using HandshakeConversionPattern<math::RsqrtOp>::HandshakeConversionPattern;
+  void buildModule(math::RsqrtOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
+                                        "(1.0 / $sqrt({{0}}))", inputs);
+    });
+  };
+};
+
+class TanhOpConversionPattern
+    : public HandshakeConversionPattern<math::TanhOp> {
+public:
+  using HandshakeConversionPattern<math::TanhOp>::HandshakeConversionPattern;
+  void buildModule(math::TanhOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return sv::VerbatimExprOp::create(
+          s.b, op.getLoc(), op.getType(),
+          "((2.0 / (1.0 + $exp(-2.0 * {{0}}))) - 1.0)", inputs);
+    });
+  };
+};
+
+class FPowIOpConversionPattern
+    : public HandshakeConversionPattern<math::FPowIOp> {
+public:
+  using HandshakeConversionPattern<math::FPowIOp>::HandshakeConversionPattern;
+  void buildModule(math::FPowIOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
+                                        "($pow({{0}}, {{1}}))", inputs);
     });
   };
 };
@@ -1693,8 +1908,7 @@ public:
     }
     if (auto floatAttr = dyn_cast<FloatAttr>(attr)) {
       unwrappedIO.outputs[0].data->setValue(
-          arith::ConstantOp::create(s.b, op.getLoc(), floatAttr.getType(),
-                                    floatAttr));
+          createFloatLiteral(s, op.getLoc(), floatAttr));
       return;
     }
     op->emitError("unsupported constant type");
@@ -1997,15 +2211,10 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       UnitRateConversionPattern<arith::ShLIOp, comb::ShlOp>,
       UnitRateConversionPattern<arith::ShRUIOp, comb::ShrUOp>,
       UnitRateConversionPattern<arith::ShRSIOp, comb::ShrSOp>,
-      UnitRateConversionPattern<arith::AddFOp>,
-      UnitRateConversionPattern<arith::SubFOp>,
-      UnitRateConversionPattern<arith::MulFOp>,
-      UnitRateConversionPattern<arith::DivFOp>,
-      UnitRateConversionPattern<arith::MaximumFOp>,
-      UnitRateConversionPattern<math::ExpOp>,
-      UnitRateConversionPattern<math::RsqrtOp>,
-      UnitRateConversionPattern<math::TanhOp>,
-      UnitRateConversionPattern<math::FPowIOp>,
+      AddFOpConversionPattern, SubFOpConversionPattern, MulFOpConversionPattern,
+      DivFOpConversionPattern, MaximumFOpConversionPattern,
+      ExpOpConversionPattern, RsqrtOpConversionPattern,
+      TanhOpConversionPattern, FPowIOpConversionPattern,
       UnitRateConversionPattern<arith::SelectOp, comb::MuxOp>,
       // HW operations.
       StructCreateConversionPattern,
@@ -2019,9 +2228,8 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       LoadConversionPattern, StoreConversionPattern, MemoryConversionPattern,
       InstanceConversionPattern,
       // Arith operations.
-      CastConversionPattern<arith::UIToFPOp>,
-      CastConversionPattern<arith::SIToFPOp>,
-      CastConversionPattern<arith::TruncFOp>,
+      UIToFPConversionPattern, SIToFPConversionPattern,
+      TruncFOpConversionPattern,
       ExtendConversionPattern<arith::ExtUIOp, /*signExtend=*/false>,
       ExtendConversionPattern<arith::ExtSIOp, /*signExtend=*/true>,
       TruncateConversionPattern, IndexCastConversionPattern>(

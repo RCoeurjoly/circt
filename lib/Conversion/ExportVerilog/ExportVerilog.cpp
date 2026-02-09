@@ -1732,6 +1732,18 @@ static bool printPackedTypeImpl(Type type, raw_ostream &os, Location loc,
         emitDims(dims, os, loc, emitter);
         return true;
       })
+      .Case<mlir::FloatType>([&](mlir::FloatType floatType) {
+        if (floatType.isF32()) {
+          os << "shortreal";
+          return true;
+        }
+        if (floatType.isF64()) {
+          os << "real";
+          return true;
+        }
+        emitError(loc) << "unsupported float type: " << floatType;
+        return false;
+      })
       .Case<ArrayType>([&](ArrayType arrayType) {
         dims.push_back(arrayType.getSizeAttr());
         return printPackedTypeImpl(arrayType.getElementType(), os, loc, dims,
