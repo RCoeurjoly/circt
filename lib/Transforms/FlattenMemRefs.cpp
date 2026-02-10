@@ -264,6 +264,7 @@ struct GlobalOpConversion : public OpConversionPattern<memref::GlobalOp> {
   LogicalResult
   matchAndRewrite(memref::GlobalOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    (void)adaptor;
     MemRefType type = op.getType();
     if (isUniDimensional(type) || !type.hasStaticShape())
       return failure();
@@ -277,26 +278,27 @@ struct GlobalOpConversion : public OpConversionPattern<memref::GlobalOp> {
       return rewriter.notifyMatchFailure(
           op, "memref.global has non-elements or missing constant initializer");
 
-    // Build the flattened initializer type: 1-D tensor with same element type.
-    auto oldShapedTy = llvm::dyn_cast<ShapedType>(elements.getType());
-    if (!oldShapedTy || !oldShapedTy.hasStaticShape())
-      return rewriter.notifyMatchFailure(op, "initializer is not a static shaped type");
-
-    int64_t nElts = oldShapedTy.getNumElements();
-    RankedTensorType tensorType =
-        RankedTensorType::get({nElts}, type.getElementType());
+    // Build flattened initializer type from memref type to avoid depending on
+    // initializer-specific element counting for resource-backed constants.
+    int64_t nElts = type.getNumElements();
+    RankedTensorType tensorType = RankedTensorType::get({nElts}, type.getElementType());
 
     // Produce a new initializer without iterating element-by-element.
     ElementsAttr newInitValue;
     if (auto dense = llvm::dyn_cast<DenseElementsAttr>(elements)) {
-      // DenseElementsAttr supports reshape in your revision.
+      int64_t denseNumElts = static_cast<int64_t>(dense.getNumElements());
+      if (denseNumElts != nElts ||
+          dense.getType().getElementType() != type.getElementType())
+        return rewriter.notifyMatchFailure(op, "dense initializer shape/type mismatch");
       newInitValue = dense.reshape(tensorType);
     } else if (auto res = llvm::dyn_cast<DenseResourceElementsAttr>(elements)) {
-      // Resource-backed: reuse the same handle, just change the shaped type.
+      auto shapedTy = llvm::dyn_cast<ShapedType>(res.getType());
+      if (!shapedTy || !shapedTy.hasStaticShape() ||
+          shapedTy.getNumElements() != nElts ||
+          shapedTy.getElementType() != type.getElementType())
+        return rewriter.notifyMatchFailure(op, "resource initializer shape/type mismatch");
+      // Resource-backed: reuse the same handle, change only the shaped type.
       newInitValue = DenseResourceElementsAttr::get(tensorType, res.getRawHandle());
-    } else if (auto splat = llvm::dyn_cast<SplatElementsAttr>(elements)) {
-      // Optional: preserve splat.
-      newInitValue = SplatElementsAttr::get(tensorType, splat.getSplatValue<Attribute>());
     } else {
       return rewriter.notifyMatchFailure(op, "unsupported elements initializer kind");
     }
