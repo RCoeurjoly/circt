@@ -44,7 +44,7 @@ Primitive names encode operation and operand/result widths.
 - Comparisons:
   - `circt_fp_cmpf_<pred>_f<F>`: returns `i1`
 - Mixed:
-  - `circt_fp_fpowi_f<F>_ui<W>`: `(f<F>, i<W>) -> f<F>`
+  - `circt_fp_fpowi_f<F>_si<W>`: `(f<F>, i<W>) -> f<F>` (signed exponent semantics)
 
 Port convention:
 
@@ -83,4 +83,3 @@ For each target backend library:
 3. Confirm all emitted `circt_fp_*` symbols resolve to provided modules.
 4. Run model-vs-RTL numerical conformance tests over representative workloads
    and corner-case floating-point vectors.
-

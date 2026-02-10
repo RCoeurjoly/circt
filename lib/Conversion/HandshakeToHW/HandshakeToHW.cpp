@@ -1682,7 +1682,7 @@ public:
     auto resultType = cast<FloatType>(op.getType());
     auto expType = cast<IntegerType>(op.getRhs().getType());
     auto moduleName = "circt_fp_fpowi_f" + std::to_string(resultType.getWidth()) +
-                      "_ui" + std::to_string(expType.getWidth());
+                      "_si" + std::to_string(expType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
       return this->instantiateExternPrimitive(s, moduleName, inputs,
                                               op.getType());
