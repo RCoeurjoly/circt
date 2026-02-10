@@ -1,6 +1,6 @@
 // RUN: circt-opt -handshake-materialize-forks-sinks -lower-handshake-to-hw %s | FileCheck %s
 
-// CHECK: hw.module.extern @circt_fp_addf_f32
+// CHECK: hw.module.extern @circt_fp_addf_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
 // CHECK: hw.module.extern @circt_fp_subf_f32
 // CHECK: hw.module.extern @circt_fp_mulf_f32
 // CHECK: hw.module.extern @circt_fp_divf_f32
@@ -9,7 +9,7 @@
 // CHECK: hw.module.extern @circt_fp_rsqrt_f32
 // CHECK: hw.module.extern @circt_fp_tanh_f32
 // CHECK: hw.module.extern @circt_fp_fpowi_f32_ui64
-// CHECK: hw.module.extern @circt_fp_truncf_f64_f32
+// CHECK: hw.module.extern @circt_fp_truncf_f64_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
 // CHECK: hw.instance "u_fp" @circt_fp_addf_f32
 // CHECK: hw.instance "u_fp" @circt_fp_subf_f32
 // CHECK: hw.instance "u_fp" @circt_fp_mulf_f32

@@ -21,6 +21,7 @@
 #include "circt/Dialect/Handshake/HandshakeUtils.h"
 #include "circt/Dialect/Handshake/Visitor.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Dialect/SV/SVAttributes.h"
 #include "circt/Dialect/SV/SVOps.h"
 #include "circt/Support/BackedgeBuilder.h"
 #include "circt/Support/ValueMapper.h"
@@ -1028,6 +1029,9 @@ protected:
       submoduleBuilder.setInsertionPointToStart(ls.parentModule.getBody());
       primitiveModule = hw::HWModuleExternOp::create(
           submoduleBuilder, s.loc, s.b.getStringAttr(moduleName), portInfo);
+      sv::setSVAttributes(
+          primitiveModule,
+          sv::SVAttributeAttr::get(s.b.getContext(), "blackbox"));
     }
 
     SmallVector<Value> inputVec(inputs.begin(), inputs.end());
