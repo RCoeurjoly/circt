@@ -25,7 +25,7 @@ handshake.func @main() -> () {
 
 // expected-error @+1 {{'handshake.func' op error during conversion}}
 handshake.func @unsupported_math(%x: f32) -> f32 {
-  // expected-error @+1 {{failed to legalize operation 'math.sin' that was explicitly marked illegal}}
-  %s = math.sin %x : f32
+  // expected-error @+1 {{failed to legalize operation 'math.acosh' that was explicitly marked illegal}}
+  %s = math.acosh %x : f32
   return %s : f32
 }

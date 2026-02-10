@@ -1690,6 +1690,51 @@ public:
   };
 };
 
+#define DEFINE_UNARY_FLOAT_EXTERN_PATTERN(CLASS_NAME, OP_TYPE, PREFIX)         \
+  class CLASS_NAME : public HandshakeConversionPattern<OP_TYPE> {              \
+  public:                                                                       \
+    using HandshakeConversionPattern<OP_TYPE>::HandshakeConversionPattern;      \
+    void buildModule(OP_TYPE op, BackedgeBuilder &bb, RTLBuilder &s,           \
+                     hw::HWModulePortAccessor &ports) const override {          \
+      auto unwrappedIO = this->unwrapIO(s, bb, ports);                         \
+      auto resultType = cast<FloatType>(op.getType());                         \
+      auto moduleName =                                                         \
+          PREFIX "_f" + std::to_string(resultType.getWidth());                 \
+      this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {    \
+        return this->instantiateExternPrimitive(s, moduleName, inputs,          \
+                                                op.getType());                  \
+      });                                                                       \
+    };                                                                          \
+  };
+
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(SinOpConversionPattern, math::SinOp,
+                                  "circt_fp_sin")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(CosOpConversionPattern, math::CosOp,
+                                  "circt_fp_cos")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(TanOpConversionPattern, math::TanOp,
+                                  "circt_fp_tan")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(CeilOpConversionPattern, math::CeilOp,
+                                  "circt_fp_ceil")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(FloorOpConversionPattern, math::FloorOp,
+                                  "circt_fp_floor")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(RoundOpConversionPattern, math::RoundOp,
+                                  "circt_fp_round")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(RoundEvenOpConversionPattern,
+                                  math::RoundEvenOp, "circt_fp_roundeven")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(TruncMathOpConversionPattern, math::TruncOp,
+                                  "circt_fp_trunc")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(Log2OpConversionPattern, math::Log2Op,
+                                  "circt_fp_log2")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(Log10OpConversionPattern, math::Log10Op,
+                                  "circt_fp_log10")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(Log1pOpConversionPattern, math::Log1pOp,
+                                  "circt_fp_log1p")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(ExpM1OpConversionPattern, math::ExpM1Op,
+                                  "circt_fp_expm1")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(CbrtOpConversionPattern, math::CbrtOp,
+                                  "circt_fp_cbrt")
+#undef DEFINE_UNARY_FLOAT_EXTERN_PATTERN
+
 class TruncateConversionPattern
     : public HandshakeConversionPattern<arith::TruncIOp> {
 public:
@@ -2389,7 +2434,14 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       MaxNumFOpConversionPattern, MinimumFOpConversionPattern,
       MinNumFOpConversionPattern, NegFOpConversionPattern,
       ExpOpConversionPattern, Exp2OpConversionPattern, SqrtOpConversionPattern,
-      LogOpConversionPattern, AbsFOpConversionPattern, RsqrtOpConversionPattern,
+      LogOpConversionPattern, Log2OpConversionPattern,
+      Log10OpConversionPattern, Log1pOpConversionPattern,
+      AbsFOpConversionPattern, ExpM1OpConversionPattern,
+      CbrtOpConversionPattern, SinOpConversionPattern,
+      CosOpConversionPattern, TanOpConversionPattern,
+      CeilOpConversionPattern, FloorOpConversionPattern,
+      RoundOpConversionPattern, RoundEvenOpConversionPattern,
+      TruncMathOpConversionPattern, RsqrtOpConversionPattern,
       TanhOpConversionPattern, FPowIOpConversionPattern,
       UnitRateConversionPattern<arith::SelectOp, comb::MuxOp>,
       // HW operations.
