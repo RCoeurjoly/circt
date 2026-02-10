@@ -20,6 +20,16 @@
 // CHECK: hw.instance "u_fp" @circt_fp_tanh_f32
 // CHECK: hw.instance "u_fp" @circt_fp_fpowi_f32_ui64
 // CHECK: hw.instance "u_fp" @circt_fp_truncf_f64_f32
+// CHECK-NOT: $itor
+// CHECK-NOT: $bitstoshortreal
+// CHECK-NOT: $shortrealtobits
+// CHECK-NOT: $bitstoreal
+// CHECK-NOT: $realtobits
+// CHECK-NOT: $exp
+// CHECK-NOT: $sqrt
+// CHECK-NOT: $pow
+// CHECK-NOT: shortreal
+// CHECK-NOT: real
 
 handshake.func @test_fp_ops(%ctrl: none, ...) -> (f32, f32, f32, f32, f32, f32, f32, f32, f32, f32) {
   %ctrls:4 = fork [4] %ctrl : none

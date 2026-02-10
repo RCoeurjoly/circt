@@ -6,6 +6,13 @@
 // CHECK: hw.instance "u_fp" @circt_fp_addf_f32
 // CHECK: hw.module @arith_cmpf_in_f32_f32_out_ui1
 // CHECK: hw.instance "u_fp" @circt_fp_cmpf_ogt_f32
+// CHECK-NOT: $itor
+// CHECK-NOT: $bitstoshortreal
+// CHECK-NOT: $shortrealtobits
+// CHECK-NOT: $bitstoreal
+// CHECK-NOT: $realtobits
+// CHECK-NOT: shortreal
+// CHECK-NOT: real
 
 handshake.func @test_fp(%ctrl: none, ...) -> (f32, i1) {
   %f:2 = fork [2] %ctrl : none
