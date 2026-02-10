@@ -2450,8 +2450,8 @@ public:
     // between instantiated modules.
     target.addLegalOp<hw::HWModuleOp, hw::HWModuleExternOp, hw::OutputOp,
                       hw::InstanceOp>();
-    target
-        .addIllegalDialect<handshake::HandshakeDialect, arith::ArithDialect>();
+    target.addIllegalDialect<handshake::HandshakeDialect, arith::ArithDialect,
+                             math::MathDialect>();
     target.addIllegalOp<cf::AssertOp>();
 
     // Convert the handshake.func operations in post-order wrt. the instance
