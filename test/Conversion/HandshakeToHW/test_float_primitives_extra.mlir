@@ -1,13 +1,13 @@
 // RUN: circt-opt -handshake-materialize-forks-sinks -lower-handshake-to-hw %s | FileCheck %s
 
-// CHECK: hw.module.extern @circt_fp_extf_f32_f64
-// CHECK: hw.module.extern @circt_fp_negf_f32
-// CHECK: hw.module.extern @circt_fp_maxnumf_f32
-// CHECK: hw.module.extern @circt_fp_minnumf_f32
-// CHECK: hw.module.extern @circt_fp_absf_f32
-// CHECK: hw.module.extern @circt_fp_exp2_f32
-// CHECK: hw.module.extern @circt_fp_sqrt_f32
-// CHECK: hw.module.extern @circt_fp_log_f32
+// CHECK: hw.module.extern @circt_fp_extf_f32_f64{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_negf_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_maxnumf_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_minnumf_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_absf_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_exp2_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_sqrt_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_log_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
 // CHECK: hw.instance "u_fp" @circt_fp_extf_f32_f64
 // CHECK: hw.instance "u_fp" @circt_fp_negf_f32
 // CHECK: hw.instance "u_fp" @circt_fp_maxnumf_f32
