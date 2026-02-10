@@ -194,6 +194,7 @@ system functions (for example `$itor`, `$exp`, `$pow`) in emitted Verilog.
 
 To synthesize designs using these externs, provide matching RTL implementations
 or library blackboxes for the emitted `circt_fp_*` modules.
+See also: [Handshake FP Primitive Contract](Dialects/Handshake/FPPrimitiveContract.md).
 
 ### Specifying `LoweringOptions` in a front-end HDL tool
 
