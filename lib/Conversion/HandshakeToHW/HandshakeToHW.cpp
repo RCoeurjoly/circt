@@ -1008,6 +1008,35 @@ public:
     return priorityArb;
   }
 
+protected:
+  Value instantiateExternPrimitive(RTLBuilder &s, StringRef moduleName,
+                                   ValueRange inputs, Type outputType,
+                                   StringRef instanceName = "u_fp") const {
+    auto primitiveModule = checkSubModuleOp(ls.parentModule, moduleName);
+    if (!primitiveModule) {
+      OpBuilder::InsertionGuard guard(submoduleBuilder);
+      SmallVector<hw::PortInfo> inputPorts;
+      SmallVector<hw::PortInfo> outputPorts;
+      for (auto [idx, inTy] : llvm::enumerate(inputs.getTypes())) {
+        inputPorts.push_back(
+            {s.b.getStringAttr("in" + std::to_string(idx)), inTy,
+             hw::ModulePort::Direction::Input, idx});
+      }
+      outputPorts.push_back({s.b.getStringAttr("out0"), outputType,
+                             hw::ModulePort::Direction::Output, 0});
+      auto portInfo = ModulePortInfo(inputPorts, outputPorts);
+      submoduleBuilder.setInsertionPointToStart(ls.parentModule.getBody());
+      primitiveModule = hw::HWModuleExternOp::create(
+          submoduleBuilder, s.loc, s.b.getStringAttr(moduleName), portInfo);
+    }
+
+    SmallVector<Value> inputVec(inputs.begin(), inputs.end());
+    auto inst = hw::InstanceOp::create(s.b, s.loc, primitiveModule.getOperation(),
+                                       s.b.getStringAttr(instanceName), inputVec);
+    assert(inst.getNumResults() == 1 && "expected unary primitive output");
+    return inst.getResult(0);
+  }
+
 private:
   OpBuilder &submoduleBuilder;
   HandshakeLoweringState &ls;
@@ -1304,38 +1333,12 @@ public:
   void buildModule(arith::CmpFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto inType = cast<FloatType>(op.getLhs().getType());
+    auto moduleName = "circt_fp_cmpf_" + stringifyEnum(op.getPredicate()).str() +
+                      "_f" + std::to_string(inType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      StringRef expr = "";
-      switch (op.getPredicate()) {
-      case arith::CmpFPredicate::OEQ:
-      case arith::CmpFPredicate::UEQ:
-        expr = "({{0}} == {{1}})";
-        break;
-      case arith::CmpFPredicate::ONE:
-      case arith::CmpFPredicate::UNE:
-        expr = "({{0}} != {{1}})";
-        break;
-      case arith::CmpFPredicate::OLT:
-      case arith::CmpFPredicate::ULT:
-        expr = "({{0}} < {{1}})";
-        break;
-      case arith::CmpFPredicate::OLE:
-      case arith::CmpFPredicate::ULE:
-        expr = "({{0}} <= {{1}})";
-        break;
-      case arith::CmpFPredicate::OGT:
-      case arith::CmpFPredicate::UGT:
-        expr = "({{0}} > {{1}})";
-        break;
-      case arith::CmpFPredicate::OGE:
-      case arith::CmpFPredicate::UGE:
-        expr = "({{0}} >= {{1}})";
-        break;
-      default:
-        llvm_unreachable("unsupported CmpFOp predicate");
-      }
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
-                                        inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1347,29 +1350,13 @@ public:
   void buildModule(arith::UIToFPOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto inputType = cast<IntegerType>(op.getIn().getType());
+    auto moduleName = "circt_fp_uitofp_ui" + std::to_string(inputType.getWidth()) +
+                      "_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      auto resultType = cast<FloatType>(op.getType());
-      auto inputType = cast<IntegerType>(op.getIn().getType());
-      std::string expr;
-      if (inputType.getWidth() == 1) {
-        // Avoid `$itor` for the common ui1 case, which is unsynthesizable in
-        // Yosys. Use direct IEEE-754 encodings instead.
-        if (resultType.isF32())
-          expr = "({{0}} ? 32'h3F800000 : 32'h00000000)";
-        else if (resultType.isF64())
-          expr = "({{0}} ? 64'h3FF0000000000000 : 64'h0000000000000000)";
-        else
-          llvm_unreachable("unsupported float type");
-      } else {
-        unsigned outWidth = resultType.getWidth();
-        unsigned inWidth = inputType.getWidth();
-        if (inWidth <= outWidth)
-          expr = "{{0}}";
-        else
-          expr = "({{0}}[" + std::to_string(outWidth - 1) + ":0])";
-      }
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
-                                        inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1381,29 +1368,13 @@ public:
   void buildModule(arith::SIToFPOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto inputType = cast<IntegerType>(op.getIn().getType());
+    auto moduleName = "circt_fp_sitofp_si" + std::to_string(inputType.getWidth()) +
+                      "_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      auto resultType = cast<FloatType>(op.getType());
-      auto inputType = cast<IntegerType>(op.getIn().getType());
-      std::string expr;
-      if (inputType.getWidth() == 1) {
-        // Signed i1 values are {0, -1}. Emit encodings directly to avoid
-        // `$itor` in synthesizable flows.
-        if (resultType.isF32())
-          expr = "({{0}} ? 32'hBF800000 : 32'h00000000)";
-        else if (resultType.isF64())
-          expr = "({{0}} ? 64'hBFF0000000000000 : 64'h0000000000000000)";
-        else
-          llvm_unreachable("unsupported float type");
-      } else {
-        unsigned outWidth = resultType.getWidth();
-        unsigned inWidth = inputType.getWidth();
-        if (inWidth <= outWidth)
-          expr = "($signed({{0}}))";
-        else
-          expr = "({{0}}[" + std::to_string(outWidth - 1) + ":0])";
-      }
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
-                                        inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1415,16 +1386,13 @@ public:
   void buildModule(arith::TruncFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto sourceType = cast<FloatType>(op.getOperand().getType());
+    auto targetType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_truncf_f" + std::to_string(sourceType.getWidth()) +
+                      "_f" + std::to_string(targetType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      auto sourceType = cast<FloatType>(op.getOperand().getType());
-      auto targetType = cast<FloatType>(op.getType());
-      std::string expr;
-      if (sourceType.getWidth() <= targetType.getWidth())
-        expr = "{{0}}";
-      else
-        expr = "({{0}}[" + std::to_string(targetType.getWidth() - 1) + ":0])";
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
-                                        inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1436,9 +1404,11 @@ public:
   void buildModule(arith::AddFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_addf_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "({{0}} + {{1}})", inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1450,9 +1420,11 @@ public:
   void buildModule(arith::SubFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_subf_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "({{0}} - {{1}})", inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1464,9 +1436,11 @@ public:
   void buildModule(arith::MulFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_mulf_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "({{0}} * {{1}})", inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1478,9 +1452,11 @@ public:
   void buildModule(arith::DivFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_divf_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "({{0}} / {{1}})", inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1493,10 +1469,11 @@ public:
   void buildModule(arith::MaximumFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_maxf_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(
-          s.b, op.getLoc(), op.getType(), "(({{0}} > {{1}}) ? {{0}} : {{1}})",
-          inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1507,9 +1484,11 @@ public:
   void buildModule(math::ExpOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_exp_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "{{0}}", inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1521,9 +1500,11 @@ public:
   void buildModule(math::RsqrtOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_rsqrt_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "{{0}}", inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1535,9 +1516,11 @@ public:
   void buildModule(math::TanhOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_tanh_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(
-          s.b, op.getLoc(), op.getType(), "{{0}}", inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
@@ -1549,9 +1532,13 @@ public:
   void buildModule(math::FPowIOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto expType = cast<IntegerType>(op.getRhs().getType());
+    auto moduleName = "circt_fp_fpowi_f" + std::to_string(resultType.getWidth()) +
+                      "_ui" + std::to_string(expType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "{{0}}", inputs);
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
     });
   };
 };
