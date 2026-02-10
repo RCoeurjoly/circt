@@ -1401,6 +1401,23 @@ public:
   };
 };
 
+class ExtFOpConversionPattern : public HandshakeConversionPattern<arith::ExtFOp> {
+public:
+  using HandshakeConversionPattern<arith::ExtFOp>::HandshakeConversionPattern;
+  void buildModule(arith::ExtFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto sourceType = cast<FloatType>(op.getOperand().getType());
+    auto targetType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_extf_f" + std::to_string(sourceType.getWidth()) +
+                      "_f" + std::to_string(targetType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
 class AddFOpConversionPattern
     : public HandshakeConversionPattern<arith::AddFOp> {
 public:
@@ -1449,6 +1466,21 @@ public:
   };
 };
 
+class NegFOpConversionPattern : public HandshakeConversionPattern<arith::NegFOp> {
+public:
+  using HandshakeConversionPattern<arith::NegFOp>::HandshakeConversionPattern;
+  void buildModule(arith::NegFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_negf_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
 class DivFOpConversionPattern
     : public HandshakeConversionPattern<arith::DivFOp> {
 public:
@@ -1482,6 +1514,23 @@ public:
   };
 };
 
+class MaxNumFOpConversionPattern
+    : public HandshakeConversionPattern<arith::MaxNumFOp> {
+public:
+  using HandshakeConversionPattern<
+      arith::MaxNumFOp>::HandshakeConversionPattern;
+  void buildModule(arith::MaxNumFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_maxnumf_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
 class MinimumFOpConversionPattern
     : public HandshakeConversionPattern<arith::MinimumFOp> {
 public:
@@ -1499,6 +1548,23 @@ public:
   };
 };
 
+class MinNumFOpConversionPattern
+    : public HandshakeConversionPattern<arith::MinNumFOp> {
+public:
+  using HandshakeConversionPattern<
+      arith::MinNumFOp>::HandshakeConversionPattern;
+  void buildModule(arith::MinNumFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_minnumf_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
 class ExpOpConversionPattern : public HandshakeConversionPattern<math::ExpOp> {
 public:
   using HandshakeConversionPattern<math::ExpOp>::HandshakeConversionPattern;
@@ -1507,6 +1573,66 @@ public:
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
     auto resultType = cast<FloatType>(op.getType());
     auto moduleName = "circt_fp_exp_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class Exp2OpConversionPattern : public HandshakeConversionPattern<math::Exp2Op> {
+public:
+  using HandshakeConversionPattern<math::Exp2Op>::HandshakeConversionPattern;
+  void buildModule(math::Exp2Op op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_exp2_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class SqrtOpConversionPattern : public HandshakeConversionPattern<math::SqrtOp> {
+public:
+  using HandshakeConversionPattern<math::SqrtOp>::HandshakeConversionPattern;
+  void buildModule(math::SqrtOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_sqrt_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class LogOpConversionPattern : public HandshakeConversionPattern<math::LogOp> {
+public:
+  using HandshakeConversionPattern<math::LogOp>::HandshakeConversionPattern;
+  void buildModule(math::LogOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_log_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class AbsFOpConversionPattern : public HandshakeConversionPattern<math::AbsFOp> {
+public:
+  using HandshakeConversionPattern<math::AbsFOp>::HandshakeConversionPattern;
+  void buildModule(math::AbsFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_absf_f" + std::to_string(resultType.getWidth());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
       return this->instantiateExternPrimitive(s, moduleName, inputs,
                                               op.getType());
@@ -2260,8 +2386,10 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       UnitRateConversionPattern<arith::ShRSIOp, comb::ShrSOp>,
       AddFOpConversionPattern, SubFOpConversionPattern, MulFOpConversionPattern,
       DivFOpConversionPattern, MaximumFOpConversionPattern,
-      MinimumFOpConversionPattern,
-      ExpOpConversionPattern, RsqrtOpConversionPattern,
+      MaxNumFOpConversionPattern, MinimumFOpConversionPattern,
+      MinNumFOpConversionPattern, NegFOpConversionPattern,
+      ExpOpConversionPattern, Exp2OpConversionPattern, SqrtOpConversionPattern,
+      LogOpConversionPattern, AbsFOpConversionPattern, RsqrtOpConversionPattern,
       TanhOpConversionPattern, FPowIOpConversionPattern,
       UnitRateConversionPattern<arith::SelectOp, comb::MuxOp>,
       // HW operations.
@@ -2277,7 +2405,7 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       InstanceConversionPattern,
       // Arith operations.
       UIToFPConversionPattern, SIToFPConversionPattern,
-      TruncFOpConversionPattern,
+      TruncFOpConversionPattern, ExtFOpConversionPattern,
       ExtendConversionPattern<arith::ExtUIOp, /*signExtend=*/false>,
       ExtendConversionPattern<arith::ExtSIOp, /*signExtend=*/true>,
       TruncateConversionPattern, IndexCastConversionPattern>(
