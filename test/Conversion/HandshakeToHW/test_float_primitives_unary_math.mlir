@@ -1,18 +1,18 @@
 // RUN: circt-opt -handshake-materialize-forks-sinks -lower-handshake-to-hw %s | FileCheck %s
 
-// CHECK: hw.module.extern @circt_fp_sin_f32
-// CHECK: hw.module.extern @circt_fp_cos_f32
-// CHECK: hw.module.extern @circt_fp_tan_f32
-// CHECK: hw.module.extern @circt_fp_ceil_f32
-// CHECK: hw.module.extern @circt_fp_floor_f32
-// CHECK: hw.module.extern @circt_fp_round_f32
-// CHECK: hw.module.extern @circt_fp_roundeven_f32
-// CHECK: hw.module.extern @circt_fp_trunc_f32
-// CHECK: hw.module.extern @circt_fp_log2_f32
-// CHECK: hw.module.extern @circt_fp_log10_f32
-// CHECK: hw.module.extern @circt_fp_log1p_f32
-// CHECK: hw.module.extern @circt_fp_expm1_f32
-// CHECK: hw.module.extern @circt_fp_cbrt_f32
+// CHECK: hw.module.extern @circt_fp_sin_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_cos_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_tan_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_ceil_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_floor_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_round_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_roundeven_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_trunc_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_log2_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_log10_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_log1p_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_expm1_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
+// CHECK: hw.module.extern @circt_fp_cbrt_f32{{.*}}sv.attributes = [#sv.attribute<"blackbox">]
 // CHECK: hw.instance "u_fp" @circt_fp_sin_f32
 // CHECK: hw.instance "u_fp" @circt_fp_cos_f32
 // CHECK: hw.instance "u_fp" @circt_fp_tan_f32
