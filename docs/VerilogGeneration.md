@@ -185,6 +185,15 @@ options. Yosys doesn't parse `automatic` variables, so `disallowLocalVariables` 
 required. Additionally, Yosys doesn't accept packed arrays, so we suggest using
 `disallowPackedArrays`.
 
+#### Handshake floating-point lowering for Yosys
+
+`-lower-handshake-to-hw` lowers floating-point arithmetic and math operations to
+`hw.module.extern` symbols named `circt_fp_*` and marks them with the SV
+attribute `blackbox`. This avoids unsynthesizable SystemVerilog real-valued
+system functions (for example `$itor`, `$exp`, `$pow`) in emitted Verilog.
+
+To synthesize designs using these externs, provide matching RTL implementations
+or library blackboxes for the emitted `circt_fp_*` modules.
 
 ### Specifying `LoweringOptions` in a front-end HDL tool
 
