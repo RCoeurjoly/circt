@@ -1482,6 +1482,23 @@ public:
   };
 };
 
+class MinimumFOpConversionPattern
+    : public HandshakeConversionPattern<arith::MinimumFOp> {
+public:
+  using HandshakeConversionPattern<
+      arith::MinimumFOp>::HandshakeConversionPattern;
+  void buildModule(arith::MinimumFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_minf_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
 class ExpOpConversionPattern : public HandshakeConversionPattern<math::ExpOp> {
 public:
   using HandshakeConversionPattern<math::ExpOp>::HandshakeConversionPattern;
@@ -2243,6 +2260,7 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       UnitRateConversionPattern<arith::ShRSIOp, comb::ShrSOp>,
       AddFOpConversionPattern, SubFOpConversionPattern, MulFOpConversionPattern,
       DivFOpConversionPattern, MaximumFOpConversionPattern,
+      MinimumFOpConversionPattern,
       ExpOpConversionPattern, RsqrtOpConversionPattern,
       TanhOpConversionPattern, FPowIOpConversionPattern,
       UnitRateConversionPattern<arith::SelectOp, comb::MuxOp>,
