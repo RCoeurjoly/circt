@@ -26,12 +26,25 @@ Primitive names encode operation and operand/result widths.
 - Unary arithmetic/math:
   - `circt_fp_negf_f<F>`
   - `circt_fp_absf_f<F>`
+  - `circt_fp_sin_f<F>`
+  - `circt_fp_cos_f<F>`
+  - `circt_fp_tan_f<F>`
   - `circt_fp_exp_f<F>`
   - `circt_fp_exp2_f<F>`
+  - `circt_fp_expm1_f<F>`
   - `circt_fp_log_f<F>`
+  - `circt_fp_log2_f<F>`
+  - `circt_fp_log10_f<F>`
+  - `circt_fp_log1p_f<F>`
   - `circt_fp_sqrt_f<F>`
+  - `circt_fp_cbrt_f<F>`
   - `circt_fp_rsqrt_f<F>`
   - `circt_fp_tanh_f<F>`
+  - `circt_fp_ceil_f<F>`
+  - `circt_fp_floor_f<F>`
+  - `circt_fp_round_f<F>`
+  - `circt_fp_roundeven_f<F>`
+  - `circt_fp_trunc_f<F>`
 - Binary arithmetic:
   - `circt_fp_addf_f<F>`
   - `circt_fp_subf_f<F>`
