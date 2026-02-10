@@ -668,6 +668,10 @@ struct RTLBuilder {
     if (values.size() == 2) {
       if (isa<IntType, IntegerType, NoneType>(values[0].getType()))
         return comb::MuxOp::create(b, loc, index, values[1], values[0]);
+      if (isa<FloatType>(values[0].getType()))
+        return sv::VerbatimExprOp::create(b, loc, values[0].getType(),
+                                          "({{0}} ? {{1}} : {{2}})",
+                                          ValueRange{index, values[1], values[0]});
       return arrayGet(arrayCreate(values), index, name);
     }
 
