@@ -1369,8 +1369,20 @@ public:
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
       auto resultType = cast<FloatType>(op.getType());
-      std::string expr =
-          floatToBitsExpr(resultType, "($itor($unsigned({{0}})))");
+      auto inputType = cast<IntegerType>(op.getIn().getType());
+      std::string expr;
+      if (inputType.getWidth() == 1) {
+        // Avoid `$itor` for the common ui1 case, which is unsynthesizable in
+        // Yosys. Use direct IEEE-754 encodings instead.
+        if (resultType.isF32())
+          expr = "({{0}} ? 32'h3F800000 : 32'h00000000)";
+        else if (resultType.isF64())
+          expr = "({{0}} ? 64'h3FF0000000000000 : 64'h0000000000000000)";
+        else
+          llvm_unreachable("unsupported float type");
+      } else {
+        expr = floatToBitsExpr(resultType, "($itor($unsigned({{0}})))");
+      }
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
                                         inputs);
     });
@@ -1386,7 +1398,20 @@ public:
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
       auto resultType = cast<FloatType>(op.getType());
-      std::string expr = floatToBitsExpr(resultType, "($itor($signed({{0}})))");
+      auto inputType = cast<IntegerType>(op.getIn().getType());
+      std::string expr;
+      if (inputType.getWidth() == 1) {
+        // Signed i1 values are {0, -1}. Emit encodings directly to avoid
+        // `$itor` in synthesizable flows.
+        if (resultType.isF32())
+          expr = "({{0}} ? 32'hBF800000 : 32'h00000000)";
+        else if (resultType.isF64())
+          expr = "({{0}} ? 64'hBFF0000000000000 : 64'h0000000000000000)";
+        else
+          llvm_unreachable("unsupported float type");
+      } else {
+        expr = floatToBitsExpr(resultType, "($itor($signed({{0}})))");
+      }
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
                                         inputs);
     });
