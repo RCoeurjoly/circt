@@ -1539,45 +1539,6 @@ public:
 /// in a non-procedural region.
 static StringRef getVerilogDeclWord(Operation *op,
                                     const ModuleEmitter &emitter) {
-  auto hasFloatType = [&](Type t, auto &&hasFloatTypeRef) -> bool {
-    if (!t)
-      return false;
-    if (isa<mlir::FloatType>(t))
-      return true;
-    if (auto alias = dyn_cast<TypeAliasType>(t))
-      return hasFloatTypeRef(alias.getCanonicalType(), hasFloatTypeRef);
-    if (auto arr = dyn_cast<ArrayType>(t))
-      return hasFloatTypeRef(arr.getElementType(), hasFloatTypeRef);
-    if (auto arr = dyn_cast<UnpackedArrayType>(t))
-      return hasFloatTypeRef(arr.getElementType(), hasFloatTypeRef);
-    if (auto st = dyn_cast<StructType>(t))
-      return llvm::any_of(st.getElements(), [&](auto f) {
-        return hasFloatTypeRef(f.type, hasFloatTypeRef);
-      });
-    if (auto un = dyn_cast<UnionType>(t))
-      return llvm::any_of(un.getElements(), [&](auto f) {
-        return hasFloatTypeRef(f.type, hasFloatTypeRef);
-      });
-    return false;
-  };
-
-  auto getInOutElemType = [&](Operation *op) -> Type {
-    if (op->getNumResults() != 1)
-      return {};
-    auto inoutTy = dyn_cast<InOutType>(op->getResult(0).getType());
-    if (!inoutTy)
-      return {};
-    auto elemType = inoutTy.getElementType();
-    if (auto alias = dyn_cast<TypeAliasType>(elemType))
-      elemType = alias.getCanonicalType();
-    return elemType;
-  };
-
-  // Floating point declarations are variable types in SV (e.g. 'shortreal x;')
-  // and must not be prefixed with net/variable keywords like 'wire' or 'reg'.
-  if (auto elemType = getInOutElemType(op); hasFloatType(elemType, hasFloatType))
-    return "";
-
   if (isa<RegOp>(op)) {
     // Check if the type stored in this register is a struct or array of
     // structs. In this case, according to spec section 6.8, the "reg" prefix
@@ -1772,16 +1733,15 @@ static bool printPackedTypeImpl(Type type, raw_ostream &os, Location loc,
         return true;
       })
       .Case<mlir::FloatType>([&](mlir::FloatType floatType) {
-        if (floatType.isF32()) {
-          os << "shortreal";
-          return true;
+        dims.push_back(getInt32Attr(type.getContext(), floatType.getWidth()));
+        StringRef typeName = implicitIntType ? "" : "logic";
+        if (!typeName.empty()) {
+          os << typeName;
+          if (!dims.empty())
+            os << ' ';
         }
-        if (floatType.isF64()) {
-          os << "real";
-          return true;
-        }
-        emitError(loc) << "unsupported float type: " << floatType;
-        return false;
+        emitDims(dims, os, loc, emitter);
+        return !dims.empty() || !implicitIntType;
       })
       .Case<ArrayType>([&](ArrayType arrayType) {
         dims.push_back(arrayType.getSizeAttr());

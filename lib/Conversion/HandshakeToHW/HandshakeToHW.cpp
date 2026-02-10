@@ -741,16 +741,27 @@ static Value createFloatLiteral(RTLBuilder &s, Location loc, FloatAttr value) {
   if (hex.size() < bits.getBitWidth() / 4)
     hex = std::string(bits.getBitWidth() / 4 - hex.size(), '0') + hex;
 
-  std::string format;
-  if (floatType.isF32())
-    format = "$bitstoshortreal(32'h" + hex + ")";
-  else if (floatType.isF64())
-    format = "$bitstoreal(64'h" + hex + ")";
-  else
-    llvm_unreachable("unsupported float type");
+  std::string format =
+      std::to_string(floatType.getWidth()) + "'h" + std::string(hex);
 
   return sv::VerbatimExprOp::create(s.b, loc, value.getType(), format,
                                     ValueRange{});
+}
+
+static std::string floatFromBitsExpr(FloatType floatType, StringRef bitsExpr) {
+  if (floatType.isF32())
+    return "($bitstoshortreal(" + bitsExpr.str() + "))";
+  if (floatType.isF64())
+    return "($bitstoreal(" + bitsExpr.str() + "))";
+  llvm_unreachable("unsupported float type");
+}
+
+static std::string floatToBitsExpr(FloatType floatType, StringRef floatExpr) {
+  if (floatType.isF32())
+    return "($shortrealtobits(" + floatExpr.str() + "))";
+  if (floatType.isF64())
+    return "($realtobits(" + floatExpr.str() + "))";
+  llvm_unreachable("unsupported float type");
 }
 
 static void
@@ -1309,36 +1320,40 @@ public:
   void buildModule(arith::CmpFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto floatType = cast<FloatType>(op.getLhs().getType());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      StringRef expr = "";
+      std::string lhs = floatFromBitsExpr(floatType, "{{0}}");
+      std::string rhs = floatFromBitsExpr(floatType, "{{1}}");
+      StringRef predicateExpr = "";
       switch (op.getPredicate()) {
       case arith::CmpFPredicate::OEQ:
       case arith::CmpFPredicate::UEQ:
-        expr = "({{0}} == {{1}})";
+        predicateExpr = "==";
         break;
       case arith::CmpFPredicate::ONE:
       case arith::CmpFPredicate::UNE:
-        expr = "({{0}} != {{1}})";
+        predicateExpr = "!=";
         break;
       case arith::CmpFPredicate::OLT:
       case arith::CmpFPredicate::ULT:
-        expr = "({{0}} < {{1}})";
+        predicateExpr = "<";
         break;
       case arith::CmpFPredicate::OLE:
       case arith::CmpFPredicate::ULE:
-        expr = "({{0}} <= {{1}})";
+        predicateExpr = "<=";
         break;
       case arith::CmpFPredicate::OGT:
       case arith::CmpFPredicate::UGT:
-        expr = "({{0}} > {{1}})";
+        predicateExpr = ">";
         break;
       case arith::CmpFPredicate::OGE:
       case arith::CmpFPredicate::UGE:
-        expr = "({{0}} >= {{1}})";
+        predicateExpr = ">=";
         break;
       default:
         llvm_unreachable("unsupported CmpFOp predicate");
       }
+      std::string expr = "(" + lhs + " " + predicateExpr.str() + " " + rhs + ")";
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
                                         inputs);
     });
@@ -1354,8 +1369,8 @@ public:
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
       auto resultType = cast<FloatType>(op.getType());
-      StringRef castType = resultType.isF32() ? "shortreal" : "real";
-      std::string expr = "(" + castType.str() + "'({{0}}))";
+      std::string expr =
+          floatToBitsExpr(resultType, "($itor($unsigned({{0}})))");
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
                                         inputs);
     });
@@ -1371,8 +1386,7 @@ public:
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
       auto resultType = cast<FloatType>(op.getType());
-      StringRef castType = resultType.isF32() ? "shortreal" : "real";
-      std::string expr = "(" + castType.str() + "'({{0}}))";
+      std::string expr = floatToBitsExpr(resultType, "($itor($signed({{0}})))");
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
                                         inputs);
     });
@@ -1387,8 +1401,12 @@ public:
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "(shortreal'({{0}}))", inputs);
+      auto sourceType = cast<FloatType>(op.getOperand().getType());
+      auto targetType = cast<FloatType>(op.getType());
+      std::string expr =
+          floatToBitsExpr(targetType, floatFromBitsExpr(sourceType, "{{0}}"));
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
+                                        inputs);
     });
   };
 };
@@ -1400,9 +1418,13 @@ public:
   void buildModule(arith::AddFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      std::string lhs = floatFromBitsExpr(resultType, "{{0}}");
+      std::string rhs = floatFromBitsExpr(resultType, "{{1}}");
+      std::string expr = floatToBitsExpr(resultType, "(" + lhs + " + " + rhs + ")");
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "({{0}} + {{1}})", inputs);
+                                        expr, inputs);
     });
   };
 };
@@ -1414,9 +1436,13 @@ public:
   void buildModule(arith::SubFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      std::string lhs = floatFromBitsExpr(resultType, "{{0}}");
+      std::string rhs = floatFromBitsExpr(resultType, "{{1}}");
+      std::string expr = floatToBitsExpr(resultType, "(" + lhs + " - " + rhs + ")");
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "({{0}} - {{1}})", inputs);
+                                        expr, inputs);
     });
   };
 };
@@ -1428,9 +1454,13 @@ public:
   void buildModule(arith::MulFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      std::string lhs = floatFromBitsExpr(resultType, "{{0}}");
+      std::string rhs = floatFromBitsExpr(resultType, "{{1}}");
+      std::string expr = floatToBitsExpr(resultType, "(" + lhs + " * " + rhs + ")");
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "({{0}} * {{1}})", inputs);
+                                        expr, inputs);
     });
   };
 };
@@ -1442,9 +1472,13 @@ public:
   void buildModule(arith::DivFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      std::string lhs = floatFromBitsExpr(resultType, "{{0}}");
+      std::string rhs = floatFromBitsExpr(resultType, "{{1}}");
+      std::string expr = floatToBitsExpr(resultType, "(" + lhs + " / " + rhs + ")");
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "({{0}} / {{1}})", inputs);
+                                        expr, inputs);
     });
   };
 };
@@ -1457,10 +1491,14 @@ public:
   void buildModule(arith::MaximumFOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
-      return sv::VerbatimExprOp::create(
-          s.b, op.getLoc(), op.getType(), "(({{0}} > {{1}}) ? {{0}} : {{1}})",
-          inputs);
+      std::string lhs = floatFromBitsExpr(resultType, "{{0}}");
+      std::string rhs = floatFromBitsExpr(resultType, "{{1}}");
+      std::string selectExpr = "((" + lhs + " > " + rhs + ") ? " + lhs + " : " + rhs + ")";
+      std::string expr = floatToBitsExpr(resultType, selectExpr);
+      return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(), expr,
+                                        inputs);
     });
   };
 };
@@ -1471,9 +1509,12 @@ public:
   void buildModule(math::ExpOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      std::string in0 = floatFromBitsExpr(resultType, "{{0}}");
+      std::string expr = floatToBitsExpr(resultType, "($exp(" + in0 + "))");
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "($exp({{0}}))", inputs);
+                                        expr, inputs);
     });
   };
 };
@@ -1485,9 +1526,13 @@ public:
   void buildModule(math::RsqrtOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      std::string in0 = floatFromBitsExpr(resultType, "{{0}}");
+      std::string expr =
+          floatToBitsExpr(resultType, "(1.0 / $sqrt(" + in0 + "))");
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "(1.0 / $sqrt({{0}}))", inputs);
+                                        expr, inputs);
     });
   };
 };
@@ -1499,10 +1544,14 @@ public:
   void buildModule(math::TanhOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      std::string in0 = floatFromBitsExpr(resultType, "{{0}}");
+      std::string tanhExpr =
+          "((2.0 / (1.0 + $exp(-2.0 * " + in0 + "))) - 1.0)";
+      std::string expr = floatToBitsExpr(resultType, tanhExpr);
       return sv::VerbatimExprOp::create(
-          s.b, op.getLoc(), op.getType(),
-          "((2.0 / (1.0 + $exp(-2.0 * {{0}}))) - 1.0)", inputs);
+          s.b, op.getLoc(), op.getType(), expr, inputs);
     });
   };
 };
@@ -1514,9 +1563,13 @@ public:
   void buildModule(math::FPowIOp op, BackedgeBuilder &bb, RTLBuilder &s,
                    hw::HWModulePortAccessor &ports) const override {
     auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
     this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      std::string in0 = floatFromBitsExpr(resultType, "{{0}}");
+      std::string expr =
+          floatToBitsExpr(resultType, "($pow(" + in0 + ", {{1}}))");
       return sv::VerbatimExprOp::create(s.b, op.getLoc(), op.getType(),
-                                        "($pow({{0}}, {{1}}))", inputs);
+                                        expr, inputs);
     });
   };
 };
