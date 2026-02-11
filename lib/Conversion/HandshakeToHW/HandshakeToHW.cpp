@@ -1802,6 +1802,58 @@ public:
   };
 };
 
+class IsInfOpConversionPattern
+    : public HandshakeConversionPattern<math::IsInfOp> {
+public:
+  using HandshakeConversionPattern<math::IsInfOp>::HandshakeConversionPattern;
+  void buildModule(math::IsInfOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto inType = cast<FloatType>(op.getOperand().getType());
+    auto moduleName = "circt_fp_isinf_f" + std::to_string(inType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class IsNormalOpConversionPattern
+    : public HandshakeConversionPattern<math::IsNormalOp> {
+public:
+  using HandshakeConversionPattern<
+      math::IsNormalOp>::HandshakeConversionPattern;
+  void buildModule(math::IsNormalOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto inType = cast<FloatType>(op.getOperand().getType());
+    auto moduleName =
+        "circt_fp_isnormal_f" + std::to_string(inType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class ClampFOpConversionPattern
+    : public HandshakeConversionPattern<math::ClampFOp> {
+public:
+  using HandshakeConversionPattern<
+      math::ClampFOp>::HandshakeConversionPattern;
+  void buildModule(math::ClampFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName =
+        "circt_fp_clampf_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
 class SinCosOpConversionPattern : public HandshakeConversionPattern<math::SincosOp> {
 public:
   using HandshakeConversionPattern<math::SincosOp>::HandshakeConversionPattern;
@@ -2614,6 +2666,8 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       Atan2OpConversionPattern, PowFOpConversionPattern,
       FmaOpConversionPattern, CopySignOpConversionPattern,
       IsFiniteOpConversionPattern, IsNaNOpConversionPattern,
+      IsInfOpConversionPattern, IsNormalOpConversionPattern,
+      ClampFOpConversionPattern,
       SinCosOpConversionPattern,
       UnitRateConversionPattern<arith::SelectOp, comb::MuxOp>,
       // HW operations.
