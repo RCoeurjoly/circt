@@ -1711,8 +1711,24 @@ DEFINE_UNARY_FLOAT_EXTERN_PATTERN(SinOpConversionPattern, math::SinOp,
                                   "circt_fp_sin")
 DEFINE_UNARY_FLOAT_EXTERN_PATTERN(CosOpConversionPattern, math::CosOp,
                                   "circt_fp_cos")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(SinhOpConversionPattern, math::SinhOp,
+                                  "circt_fp_sinh")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(CoshOpConversionPattern, math::CoshOp,
+                                  "circt_fp_cosh")
 DEFINE_UNARY_FLOAT_EXTERN_PATTERN(TanOpConversionPattern, math::TanOp,
                                   "circt_fp_tan")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(AsinOpConversionPattern, math::AsinOp,
+                                  "circt_fp_asin")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(AcosOpConversionPattern, math::AcosOp,
+                                  "circt_fp_acos")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(AtanOpConversionPattern, math::AtanOp,
+                                  "circt_fp_atan")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(AsinhOpConversionPattern, math::AsinhOp,
+                                  "circt_fp_asinh")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(AcoshOpConversionPattern, math::AcoshOp,
+                                  "circt_fp_acosh")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(AtanhOpConversionPattern, math::AtanhOp,
+                                  "circt_fp_atanh")
 DEFINE_UNARY_FLOAT_EXTERN_PATTERN(CeilOpConversionPattern, math::CeilOp,
                                   "circt_fp_ceil")
 DEFINE_UNARY_FLOAT_EXTERN_PATTERN(FloorOpConversionPattern, math::FloorOp,
@@ -1733,6 +1749,10 @@ DEFINE_UNARY_FLOAT_EXTERN_PATTERN(ExpM1OpConversionPattern, math::ExpM1Op,
                                   "circt_fp_expm1")
 DEFINE_UNARY_FLOAT_EXTERN_PATTERN(CbrtOpConversionPattern, math::CbrtOp,
                                   "circt_fp_cbrt")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(ErfOpConversionPattern, math::ErfOp,
+                                  "circt_fp_erf")
+DEFINE_UNARY_FLOAT_EXTERN_PATTERN(ErfcOpConversionPattern, math::ErfcOp,
+                                  "circt_fp_erfc")
 #undef DEFINE_UNARY_FLOAT_EXTERN_PATTERN
 
 class TruncateConversionPattern
@@ -2438,7 +2458,12 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       Log10OpConversionPattern, Log1pOpConversionPattern,
       AbsFOpConversionPattern, ExpM1OpConversionPattern,
       CbrtOpConversionPattern, SinOpConversionPattern,
-      CosOpConversionPattern, TanOpConversionPattern,
+      CosOpConversionPattern, SinhOpConversionPattern,
+      CoshOpConversionPattern, TanOpConversionPattern,
+      AsinOpConversionPattern, AcosOpConversionPattern,
+      AtanOpConversionPattern, AsinhOpConversionPattern,
+      AcoshOpConversionPattern, AtanhOpConversionPattern,
+      ErfOpConversionPattern, ErfcOpConversionPattern,
       CeilOpConversionPattern, FloorOpConversionPattern,
       RoundOpConversionPattern, RoundEvenOpConversionPattern,
       TruncMathOpConversionPattern, RsqrtOpConversionPattern,

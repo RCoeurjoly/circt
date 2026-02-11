@@ -28,7 +28,15 @@ Primitive names encode operation and operand/result widths.
   - `circt_fp_absf_f<F>`
   - `circt_fp_sin_f<F>`
   - `circt_fp_cos_f<F>`
+  - `circt_fp_sinh_f<F>`
+  - `circt_fp_cosh_f<F>`
   - `circt_fp_tan_f<F>`
+  - `circt_fp_asin_f<F>`
+  - `circt_fp_acos_f<F>`
+  - `circt_fp_atan_f<F>`
+  - `circt_fp_asinh_f<F>`
+  - `circt_fp_acosh_f<F>`
+  - `circt_fp_atanh_f<F>`
   - `circt_fp_exp_f<F>`
   - `circt_fp_exp2_f<F>`
   - `circt_fp_expm1_f<F>`
@@ -38,6 +46,8 @@ Primitive names encode operation and operand/result widths.
   - `circt_fp_log1p_f<F>`
   - `circt_fp_sqrt_f<F>`
   - `circt_fp_cbrt_f<F>`
+  - `circt_fp_erf_f<F>`
+  - `circt_fp_erfc_f<F>`
   - `circt_fp_rsqrt_f<F>`
   - `circt_fp_tanh_f<F>`
   - `circt_fp_ceil_f<F>`
