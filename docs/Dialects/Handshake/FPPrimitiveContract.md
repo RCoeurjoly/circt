@@ -68,11 +68,12 @@ Primitive names encode operation and operand/result widths.
   - `circt_fp_cmpf_<pred>_f<F>`: returns `i1`
 - Mixed:
   - `circt_fp_fpowi_f<F>_si<W>`: `(f<F>, i<W>) -> f<F>` (signed exponent semantics)
+  - `circt_fp_sincos_f<F>`: `(f<F>) -> (f<F> sin, f<F> cos)`
 
 Port convention:
 
 - Inputs: `in0`, `in1`, ... in operand order.
-- Output: single `out0`.
+- Outputs: `out0`, `out1`, ... in result order.
 
 ## Semantic expectations
 

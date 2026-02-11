@@ -1010,9 +1010,9 @@ public:
   }
 
 protected:
-  Value instantiateExternPrimitive(RTLBuilder &s, StringRef moduleName,
-                                   ValueRange inputs, Type outputType,
-                                   StringRef instanceName = "u_fp") const {
+  SmallVector<Value> instantiateExternPrimitiveMulti(
+      RTLBuilder &s, StringRef moduleName, ValueRange inputs,
+      TypeRange outputTypes, StringRef instanceName = "u_fp") const {
     auto primitiveModule = checkSubModuleOp(ls.parentModule, moduleName);
     if (!primitiveModule) {
       OpBuilder::InsertionGuard guard(submoduleBuilder);
@@ -1023,8 +1023,11 @@ protected:
             {s.b.getStringAttr("in" + std::to_string(idx)), inTy,
              hw::ModulePort::Direction::Input, idx});
       }
-      outputPorts.push_back({s.b.getStringAttr("out0"), outputType,
-                             hw::ModulePort::Direction::Output, 0});
+      for (auto [idx, outTy] : llvm::enumerate(outputTypes)) {
+        outputPorts.push_back(
+            {s.b.getStringAttr("out" + std::to_string(idx)), outTy,
+             hw::ModulePort::Direction::Output, idx});
+      }
       auto portInfo = ModulePortInfo(inputPorts, outputPorts);
       submoduleBuilder.setInsertionPointToStart(ls.parentModule.getBody());
       primitiveModule = hw::HWModuleExternOp::create(
@@ -1037,8 +1040,18 @@ protected:
     SmallVector<Value> inputVec(inputs.begin(), inputs.end());
     auto inst = hw::InstanceOp::create(s.b, s.loc, primitiveModule.getOperation(),
                                        s.b.getStringAttr(instanceName), inputVec);
-    assert(inst.getNumResults() == 1 && "expected unary primitive output");
-    return inst.getResult(0);
+    assert(inst.getNumResults() == outputTypes.size() &&
+           "extern primitive output arity mismatch");
+    return SmallVector<Value>(inst.getResults().begin(), inst.getResults().end());
+  }
+
+  Value instantiateExternPrimitive(RTLBuilder &s, StringRef moduleName,
+                                   ValueRange inputs, Type outputType,
+                                   StringRef instanceName = "u_fp") const {
+    auto results = instantiateExternPrimitiveMulti(
+        s, moduleName, inputs, TypeRange{outputType}, instanceName);
+    assert(results.size() == 1 && "expected unary primitive output");
+    return results.front();
   }
 
 private:
@@ -1687,6 +1700,37 @@ public:
       return this->instantiateExternPrimitive(s, moduleName, inputs,
                                               op.getType());
     });
+  };
+};
+
+class SinCosOpConversionPattern : public HandshakeConversionPattern<math::SincosOp> {
+public:
+  using HandshakeConversionPattern<math::SincosOp>::HandshakeConversionPattern;
+  void buildModule(math::SincosOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    assert(unwrappedIO.inputs.size() == 1 &&
+           "sincos expects exactly one input channel");
+    assert(unwrappedIO.outputs.size() == 2 &&
+           "sincos expects exactly two output channels");
+    auto &in = unwrappedIO.inputs[0];
+    auto &sinOut = unwrappedIO.outputs[0];
+    auto &cosOut = unwrappedIO.outputs[1];
+
+    // Unit-rate 1->2 handshake control for paired sin/cos outputs.
+    auto inFire = s.bAnd({in.valid, sinOut.ready, cosOut.ready});
+    in.ready->setValue(inFire);
+    sinOut.valid->setValue(in.valid);
+    cosOut.valid->setValue(in.valid);
+
+    auto outType = cast<FloatType>(op.getResult(0).getType());
+    auto moduleName = "circt_fp_sincos_f" + std::to_string(outType.getWidth());
+    SmallVector<Type> resultTypes{op.getResult(0).getType(),
+                                  op.getResult(1).getType()};
+    auto results = this->instantiateExternPrimitiveMulti(
+        s, moduleName, ValueRange{in.data}, TypeRange(resultTypes));
+    sinOut.data->setValue(results[0]);
+    cosOut.data->setValue(results[1]);
   };
 };
 
@@ -2468,6 +2512,7 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       RoundOpConversionPattern, RoundEvenOpConversionPattern,
       TruncMathOpConversionPattern, RsqrtOpConversionPattern,
       TanhOpConversionPattern, FPowIOpConversionPattern,
+      SinCosOpConversionPattern,
       UnitRateConversionPattern<arith::SelectOp, comb::MuxOp>,
       // HW operations.
       StructCreateConversionPattern,
