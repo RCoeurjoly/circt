@@ -1703,6 +1703,105 @@ public:
   };
 };
 
+class Atan2OpConversionPattern
+    : public HandshakeConversionPattern<math::Atan2Op> {
+public:
+  using HandshakeConversionPattern<math::Atan2Op>::HandshakeConversionPattern;
+  void buildModule(math::Atan2Op op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_atan2_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class PowFOpConversionPattern
+    : public HandshakeConversionPattern<math::PowFOp> {
+public:
+  using HandshakeConversionPattern<math::PowFOp>::HandshakeConversionPattern;
+  void buildModule(math::PowFOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_powf_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class FmaOpConversionPattern : public HandshakeConversionPattern<math::FmaOp> {
+public:
+  using HandshakeConversionPattern<math::FmaOp>::HandshakeConversionPattern;
+  void buildModule(math::FmaOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName = "circt_fp_fma_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class CopySignOpConversionPattern
+    : public HandshakeConversionPattern<math::CopySignOp> {
+public:
+  using HandshakeConversionPattern<
+      math::CopySignOp>::HandshakeConversionPattern;
+  void buildModule(math::CopySignOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto resultType = cast<FloatType>(op.getType());
+    auto moduleName =
+        "circt_fp_copysign_f" + std::to_string(resultType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class IsFiniteOpConversionPattern
+    : public HandshakeConversionPattern<math::IsFiniteOp> {
+public:
+  using HandshakeConversionPattern<
+      math::IsFiniteOp>::HandshakeConversionPattern;
+  void buildModule(math::IsFiniteOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto inType = cast<FloatType>(op.getOperand().getType());
+    auto moduleName =
+        "circt_fp_isfinite_f" + std::to_string(inType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
+class IsNaNOpConversionPattern
+    : public HandshakeConversionPattern<math::IsNaNOp> {
+public:
+  using HandshakeConversionPattern<math::IsNaNOp>::HandshakeConversionPattern;
+  void buildModule(math::IsNaNOp op, BackedgeBuilder &bb, RTLBuilder &s,
+                   hw::HWModulePortAccessor &ports) const override {
+    auto unwrappedIO = this->unwrapIO(s, bb, ports);
+    auto inType = cast<FloatType>(op.getOperand().getType());
+    auto moduleName = "circt_fp_isnan_f" + std::to_string(inType.getWidth());
+    this->buildUnitRateJoinLogic(s, unwrappedIO, [&](ValueRange inputs) {
+      return this->instantiateExternPrimitive(s, moduleName, inputs,
+                                              op.getType());
+    });
+  };
+};
+
 class SinCosOpConversionPattern : public HandshakeConversionPattern<math::SincosOp> {
 public:
   using HandshakeConversionPattern<math::SincosOp>::HandshakeConversionPattern;
@@ -2512,6 +2611,9 @@ static LogicalResult convertFuncOp(ESITypeConverter &typeConverter,
       RoundOpConversionPattern, RoundEvenOpConversionPattern,
       TruncMathOpConversionPattern, RsqrtOpConversionPattern,
       TanhOpConversionPattern, FPowIOpConversionPattern,
+      Atan2OpConversionPattern, PowFOpConversionPattern,
+      FmaOpConversionPattern, CopySignOpConversionPattern,
+      IsFiniteOpConversionPattern, IsNaNOpConversionPattern,
       SinCosOpConversionPattern,
       UnitRateConversionPattern<arith::SelectOp, comb::MuxOp>,
       // HW operations.
