@@ -67,13 +67,16 @@ Primitive names encode operation and operand/result widths.
   - `circt_fp_atan2_f<F>`
   - `circt_fp_powf_f<F>`
   - `circt_fp_copysign_f<F>`
+  - `circt_fp_clampf_f<F>`
 - Ternary:
   - `circt_fp_fma_f<F>`
 - Comparisons:
   - `circt_fp_cmpf_<pred>_f<F>`: returns `i1`
 - Classification:
   - `circt_fp_isfinite_f<F>`: returns `i1`
+  - `circt_fp_isinf_f<F>`: returns `i1`
   - `circt_fp_isnan_f<F>`: returns `i1`
+  - `circt_fp_isnormal_f<F>`: returns `i1`
 - Mixed:
   - `circt_fp_fpowi_f<F>_si<W>`: `(f<F>, i<W>) -> f<F>` (signed exponent semantics)
   - `circt_fp_sincos_f<F>`: `(f<F>) -> (f<F> sin, f<F> cos)`
